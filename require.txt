@@ -1,0 +1,17 @@
+Hãy tạo bài lab leo thang đặc quyền trong Windows có các yêu cầu như sau:
++ Tài khoản Administrator được active
++ Có Tài khoản diana (password: lab, User standard) - Tài khoản này thuộc nhóm Remote Desktop Manager, không có đặc quyền tắt máy từ mọi phiên
++ Có Tài khoản Alex (password: Qaz@1234, User standard) - Tài khoản này thuộc nhóm Remote Management Users
++ Có Tài khoản enterpriseuser (password: Wsx@1234) - nằm trong nhóm *Backup Operators 
++ Có tài khoản enterpriseadmin (password: Edc@1234) - Tài khoản này thuộc nhóm administrators.
++ Trong ổ C tạo một thư mục có tên là Services có quyền Modifi với người dung NT Authenticated User
++ Bên trong Services có: 
+	++ 1 file EnterpriseService.exe có quyền (NT AUTHORITY\SYSTEM:(F), BUILTIN\Administrators:(F), BUILTIN\Users:(RX))
+	++ File này được chạy bởi service có tên là EnterpriseService, Service này chạy dưới quyền người dùng enterpriseuser
+	++ Người dùng diana không có quyền start, stop service này, không thể dùng sc sdshow EnterpriseService để xem quyền. Người dùng Alex có quyền Start, Stop Service này.
+	++ 1 file EnterpriseServiceLog.log (Có nội dung "[00:00:00.000] (e08) WARN   Couldn't load EnterpriseServiceOptional.dll, only using basic features.")
++ Trong folder C:\Users\diana hãy tạo ra 22 file .txt. file note19.txt có nội dung là "password reset default is Qaz@1234", File note21.txt "alex were reset password"
++ Người dùng enterpriseuser nằm trong nhóm  *Backup Operators có thể lấy file SAM, SYSTEM, đảm bảo rằng mã NTLM hash của Administrator hoặc của enterpriseadmin được tìm thấy khi crack SAM, SYSTEM
++ Đảm bảo rằng có thể sử dung Pash The Hash (của Administrator) qua evil-winrm
+ 
+
