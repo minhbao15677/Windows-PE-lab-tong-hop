@@ -192,49 +192,23 @@ sc.exe create EnterpriseService binPath= "C:\Services\EnterpriseService.exe" `
     obj= ".\enterpriseuser" password= "Wsx@1234" start= auto `
     DisplayName= "Enterprise Service" | Out-Null
 
-# Grant SeServiceLogonRight via LSA API (immediate, no reboot/gpupdate needed)
-$lsaCode = @'
-using System;
-using System.Runtime.InteropServices;
+# Grant SeServiceLogonRight via secedit (same approach as Block 3)
+$euSid = (New-Object System.Security.Principal.NTAccount("enterpriseuser")).Translate([System.Security.Principal.SecurityIdentifier]).Value
 
-public class LsaUtil {
-    [DllImport("advapi32.dll", SetLastError=true)]
-    static extern uint LsaOpenPolicy(IntPtr SystemName, ref LSA_OBJECT_ATTRIBUTES Attributes, uint Access, out IntPtr PolicyHandle);
-    [DllImport("advapi32.dll", SetLastError=true)]
-    static extern uint LsaAddAccountRights(IntPtr PolicyHandle, IntPtr AccountSid, LSA_UNICODE_STRING[] UserRights, int CountOfRights);
-    [DllImport("advapi32.dll")]
-    static extern uint LsaClose(IntPtr ObjectHandle);
-    [DllImport("advapi32.dll")]
-    static extern uint LsaNtStatusToWinError(uint Status);
+$svcLogonInf = @"
+[Unicode]
+Unicode=yes
+[Version]
+signature="`$CHICAGO`$"
+Revision=1
+[Privilege Rights]
+SeServiceLogonRight = *$euSid
+"@
 
-    [StructLayout(LayoutKind.Sequential)]
-    struct LSA_OBJECT_ATTRIBUTES { public int Length; public IntPtr RootDirectory; public IntPtr ObjectName; public uint Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService; }
-    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
-    public struct LSA_UNICODE_STRING { public ushort Length; public ushort MaximumLength; [MarshalAs(UnmanagedType.LPWStr)] public string Buffer; }
-
-    public static void AddPrivilege(System.Security.Principal.SecurityIdentifier sid, string privilege) {
-        byte[] sidBytes = new byte[sid.BinaryLength];
-        sid.GetBinaryForm(sidBytes, 0);
-        IntPtr sidPtr = Marshal.AllocHGlobal(sidBytes.Length);
-        Marshal.Copy(sidBytes, 0, sidPtr, sidBytes.Length);
-        LSA_OBJECT_ATTRIBUTES attr = new LSA_OBJECT_ATTRIBUTES();
-        attr.Length = Marshal.SizeOf(attr);
-        IntPtr policy;
-        uint r = LsaOpenPolicy(IntPtr.Zero, ref attr, 0x00020000 | 0x00000800, out policy);
-        if (r != 0) throw new Exception("LsaOpenPolicy error: " + LsaNtStatusToWinError(r));
-        LSA_UNICODE_STRING[] rights = new LSA_UNICODE_STRING[1];
-        rights[0] = new LSA_UNICODE_STRING { Buffer = privilege, Length = (ushort)(privilege.Length * 2), MaximumLength = (ushort)((privilege.Length + 1) * 2) };
-        r = LsaAddAccountRights(policy, sidPtr, rights, 1);
-        LsaClose(policy);
-        Marshal.FreeHGlobal(sidPtr);
-        if (r != 0) throw new Exception("LsaAddAccountRights error: " + LsaNtStatusToWinError(r));
-    }
-}
-'@
-Add-Type -TypeDefinition $lsaCode -Language CSharp
-
-$euSid = (New-Object System.Security.Principal.NTAccount("enterpriseuser")).Translate([System.Security.Principal.SecurityIdentifier])
-[LsaUtil]::AddPrivilege($euSid, "SeServiceLogonRight")
+$infPath3 = "$env:TEMP\svc_logon.inf"
+$dbPath3  = "$env:TEMP\svc_logon.sdb"
+$svcLogonInf | Out-File -FilePath $infPath3 -Encoding Unicode
+secedit /configure /db $dbPath3 /cfg $infPath3 /areas USER_RIGHTS /quiet
 Write-OK "EnterpriseService created, enterpriseuser granted SeServiceLogonRight"
 
 # ============================================================
@@ -253,7 +227,7 @@ $alexSid  = (New-Object System.Security.Principal.NTAccount("Alex")).Translate([
 #   (A;;CCLCSWRPLOCRRC;;;alexSID) - Alex: start(RP), stop(WP), query(LC,SW,LO,CR,RC)
 #   (D;;RPWPRC;;;dianaSID) - diana: DENY start/stop/ReadControl (blocks sc sdshow)
 
-$sddl = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPLOCRRC;;;$alexSid)(D;;RPWPRC;;;$dianaSid)"
+$sddl = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPLOCRRC;;;$alexSid)(A;;CCLC;;;$dianaSid)"
 
 # Stop service first (required for sdset)
 Stop-Service -Name "EnterpriseService" -Force -ErrorAction SilentlyContinue
@@ -261,7 +235,7 @@ Start-Sleep -Seconds 2
 
 $sdResult = sc.exe sdset EnterpriseService $sddl
 Write-OK "Service DACL set"
-Write-OK "  diana SID: $dianaSid (DENY start/stop/ReadControl)"
+Write-OK "  diana SID: $dianaSid (ALLOW query+config only, no start/stop)"
 Write-OK "  Alex  SID: $alexSid  (ALLOW start/stop/query)"
 
 # ============================================================
